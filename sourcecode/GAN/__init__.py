@@ -7,4 +7,4 @@ from GAN import CustomLayers
 from GAN import Losses
 from GAN import Infersent
 from GAN import TextEncoder
-from GAN import CConditionAugmentation
+from GAN import ConditionAugmentation

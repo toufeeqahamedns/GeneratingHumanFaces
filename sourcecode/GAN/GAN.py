@@ -443,8 +443,9 @@ class GAN:
         :return: images, latents => images and random latent points
         """
         # extract current batch of data for training
-        batch = next(data_store)
-        images = batch.to(self.device)
+        batch_captions, batch_images = next(data_store)
+        
+        images = batch_images.to(self.device)
         extracted_batch_size = images.shape[0]
 
         # list of downsampled versions of images
@@ -554,6 +555,7 @@ class GAN:
 
             # setup the dataloader (where the real images are sampled from)
             real_data_store = iter(hn_wrapper(data))
+            print(real_data_store)
             batch_counter = 0  # counter for number of batches completed
             # this includes the two Generator passes and spoofing adjusted
             # batch_sizes

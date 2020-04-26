@@ -30,7 +30,7 @@ class PretrainedEncoder(th.nn.Module):
         """
         constructor of the class
         """
-        from  import InferSent
+        from GAN.Infersent import InferSent
 
         super(PretrainedEncoder, self).__init__()
 
