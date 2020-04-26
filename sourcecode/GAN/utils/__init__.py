@@ -2,4 +2,4 @@
     These are not required elsewhere. Hence kept here.
 """
 
-from MSG_GAN.utils import iter_utils
+from GAN.utils import iter_utils

@@ -9,6 +9,8 @@ import copy
 import numpy as np
 import torch as th
 
+from GAN.ConditionAugmentation import ConditionAugmentor
+
 
 class Generator(th.nn.Module):
     """ Generator of the GAN network """
@@ -21,7 +23,7 @@ class Generator(th.nn.Module):
         :param use_eql: whether to use equalized learning rate
         """
         from torch.nn import ModuleList, Conv2d
-        from MSG_GAN.CustomLayers import GenGeneralConvBlock, \
+        from GAN.CustomLayers import GenGeneralConvBlock, \
             GenInitialBlock, _equalized_conv2d
 
         super().__init__()
@@ -29,7 +31,8 @@ class Generator(th.nn.Module):
         assert latent_size != 0 and ((latent_size & (latent_size - 1)) == 0), \
             "latent size not a power of 2"
         if depth >= 4:
-            assert latent_size >= np.power(2, depth - 4), "latent size will diminish to zero"
+            assert latent_size >= np.power(
+                2, depth - 4), "latent size will diminish to zero"
 
         # state of the generator:
         self.use_eql = use_eql
@@ -46,7 +49,8 @@ class Generator(th.nn.Module):
                 return Conv2d(in_channels, 3, (1, 1), bias=True)
 
         # create a module list of the other required general convolution blocks
-        self.layers = ModuleList([GenInitialBlock(self.latent_size, use_eql=self.use_eql)])
+        self.layers = ModuleList(
+            [GenInitialBlock(self.latent_size, use_eql=self.use_eql)])
         self.rgb_converters = ModuleList([to_rgb(self.latent_size)])
 
         # create the remaining layers
@@ -91,8 +95,9 @@ class Generator(th.nn.Module):
         """
         if drange_in != drange_out:
             scale = (np.float32(drange_out[1]) - np.float32(drange_out[0])) / (
-                    np.float32(drange_in[1]) - np.float32(drange_in[0]))
-            bias = (np.float32(drange_out[0]) - np.float32(drange_in[0]) * scale)
+                np.float32(drange_in[1]) - np.float32(drange_in[0]))
+            bias = (np.float32(drange_out[0]) -
+                    np.float32(drange_in[0]) * scale)
             data = data * scale + bias
         return th.clamp(data, min=0, max=1)
 
@@ -100,7 +105,7 @@ class Generator(th.nn.Module):
 class Discriminator(th.nn.Module):
     """ Discriminator of the GAN """
 
-    def __init__(self, depth=7, feature_size=512,
+    def __init__(self, depth=7, feature_size=512, embedding_size=4096, compressed_latent_size=128,
                  use_eql=True, gpu_parallelize=False):
         """
         constructor for the class
@@ -108,13 +113,15 @@ class Discriminator(th.nn.Module):
                        (Must be equal to the Generator depth)
         :param feature_size: size of the deepest features extracted
                              (Must be equal to Generator latent_size)
+        :param embedding_size: size of embedding for discriminator
+        :param compressed_latent_size: size of compressed version
         :param use_eql: whether to use the equalized learning rate or not
         :param gpu_parallelize: whether to use DataParallel on the discriminator
                                 Note that the Last block contains StdDev layer
                                 So, it is not parallelized.
         """
         from torch.nn import ModuleList
-        from MSG_GAN.CustomLayers import DisGeneralConvBlock, \
+        from GAN.CustomLayers import DisGeneralConvBlock, \
             DisFinalBlock, _equalized_conv2d
         from torch.nn import Conv2d
 
@@ -131,6 +138,8 @@ class Discriminator(th.nn.Module):
         self.use_eql = use_eql
         self.depth = depth
         self.feature_size = feature_size
+        self.embedding_size = embedding_size
+        self.compressed_latent_size = compressed_latent_size
 
         # create the fromRGB layers for various inputs:
         if self.use_eql:
@@ -145,7 +154,8 @@ class Discriminator(th.nn.Module):
 
         # create a module list of the other required general convolution blocks
         self.layers = ModuleList()
-        self.final_block = DisFinalBlock(self.feature_size * 2, use_eql=self.use_eql)
+        self.final_block = DisFinalBlock(
+            self.feature_size * 2, self.embedding_size, self.compressed_latent_size, use_eql=self.use_eql)
 
         # create the remaining layers
         for i in range(self.depth - 1):
@@ -184,10 +194,11 @@ class Discriminator(th.nn.Module):
         # from the Lower level (from CustomLayers). This much parallelism
         # seems enough for me.
 
-    def forward(self, inputs):
+    def forward(self, inputs, latent_vector):
         """
         forward pass of the discriminator
         :param inputs: (multi-scale input images) to the network list[Tensors]
+        :param latent_vector: latent vector required for discriminator
         :return: out => raw prediction values
         """
 
@@ -207,50 +218,59 @@ class Discriminator(th.nn.Module):
         # calculate the final block:
         input_part = self.final_converter(inputs[0])
         y = th.cat((input_part, y), dim=1)
-        y = self.final_block(y)
+        y = self.final_block(y, latent_vector)
 
         # return calculated y
         return y
 
 
-class MSG_GAN:
+class GAN:
     """ Unconditional MSG-GAN
 
         args:
             depth: depth of the GAN (will be used for each generator and discriminator)
             latent_size: latent size of the manifold used by the GAN
+            ca_hidden_size: output size of pretrained encoder
+            ca_out_size: output size of augmentor
             use_eql: whether to use the equalized learning rate
             use_ema: whether to use exponential moving averages.
             ema_decay: value of ema decay. Used only if use_ema is True
             device: device to run the GAN on (GPU / CPU)
     """
 
-    def __init__(self, depth=7, latent_size=512,
+    def __init__(self, depth=7, latent_size=512, ca_hidden_size=4096, ca_out_size=256,
                  use_eql=True, use_ema=True, ema_decay=0.999,
                  device=th.device("cpu")):
         """ constructor for the class """
         from torch.nn import DataParallel
+
+        self.ca = ConditionAugmentor(ca_hidden_size,
+                                     ca_out_size,
+                                     use_eql, device)
 
         self.gen = Generator(depth, latent_size, use_eql=use_eql).to(device)
 
         # Parallelize them if required:
         if device == th.device("cuda"):
             self.gen = DataParallel(self.gen)
-            self.dis = Discriminator(depth, latent_size,
+            self.dis = Discriminator(depth, latent_size, ca_hidden_size, ca_out_size,
                                      use_eql=use_eql, gpu_parallelize=True).to(device)
         else:
-            self.dis = Discriminator(depth, latent_size, use_eql=True).to(device)
+            self.dis = Discriminator(
+                depth, latent_size, ca_hidden_size, ca_out_size, use_eql=True).to(device)
 
         # state of the object
         self.use_ema = use_ema
         self.ema_decay = ema_decay
         self.use_eql = use_eql
         self.latent_size = latent_size
+        self.ca_hidden_size = ca_hidden_size,
+        self.ca_out_size = ca_out_size,
         self.depth = depth
         self.device = device
 
         if self.use_ema:
-            from MSG_GAN.CustomLayers import update_average
+            from GAN.CustomLayers import update_average
 
             # create a shadow copy of the generator
             self.gen_shadow = copy.deepcopy(self.gen)
@@ -362,7 +382,7 @@ class MSG_GAN:
             # pass of the function (not during accumulation).
             if self.use_ema:
                 self.ema_updater(self.gen_shadow, self.gen, self.ema_decay)
-        
+
         return loss.item()
 
     def create_grid(self, samples, img_files,
@@ -380,8 +400,9 @@ class MSG_GAN:
         from torch.nn.functional import interpolate
         from numpy import sqrt, power, ceil
 
-        # dynamically adjust the colour range of the images:       
-        samples = [Generator.adjust_dynamic_range(sample) for sample in samples]
+        # dynamically adjust the colour range of the images:
+        samples = [Generator.adjust_dynamic_range(
+            sample) for sample in samples]
 
         # resize the samples to have same resolution:
         for i in range(len(samples)):
@@ -441,11 +462,11 @@ class MSG_GAN:
 
         return images, gan_input
 
-    def train(self, data, gen_optim, dis_optim, loss_fn, normalize_latents=True,
+    def train(self, data, gen_optim, dis_optim, ca_optim, text_encoder, encoder_optim, loss_fn, normalize_latents=True,
               start=1, num_epochs=12, spoofing_factor=1,
               feedback_factor=10, checkpoint_factor=1,
               data_percentage=100, num_samples=36,
-              log_dir=None, sample_dir="./samples", 
+              log_dir=None, sample_dir="./samples",
               log_fid_values=False, num_fid_images=50000,
               save_dir="./models", fid_temp_folder="./samples/fid_imgs/",
               fid_real_stats=None, fid_batch_size=64):
@@ -456,6 +477,7 @@ class MSG_GAN:
                           please wrap this inside a Scheduler if you want to
         :param dis_optim: Optimizer for discriminator.
                           please wrap this inside a Scheduler if you want to
+        :param ca_optim: Optimizer for augmentor.
         :param loss_fn: Object of GANLoss
         :param normalize_latents: whether to normalize the latent vectors during training
         :param start: starting epoch number
@@ -484,18 +506,21 @@ class MSG_GAN:
         from shutil import rmtree
         from tqdm import tqdm
         from imageio import imwrite
-        from MSG_GAN.FID import fid_score
+        from GAN.FID import fid_score
         from math import ceil
-        from MSG_GAN.utils.iter_utils import hn_wrapper
+        from GAN.utils.iter_utils import hn_wrapper
 
         # turn the generator and discriminator into train mode
         self.gen.train()
         self.dis.train()
+        self.ca.train()
 
         assert isinstance(gen_optim, th.optim.Optimizer), \
             "gen_optim is not an Optimizer"
         assert isinstance(dis_optim, th.optim.Optimizer), \
             "dis_optim is not an Optimizer"
+        assert isinstance(ca_optim, th.optim.Optimizer), \
+            "ca_optim is not an Optimizer"
 
         print("Starting the training process ... ")
 
@@ -576,7 +601,8 @@ class MSG_GAN:
                     dis_optim, gan_input,
                     images, loss_fn,
                     accumulate=False,  # perform update
-                    zero_grad=spoofing_factor == 1,  # make gradient buffers zero if spoofing_factor is 1
+                    # make gradient buffers zero if spoofing_factor is 1
+                    zero_grad=spoofing_factor == 1,
                     num_accumulations=spoofing_factor)
 
                 # =================================================================
@@ -616,7 +642,8 @@ class MSG_GAN:
                     gen_optim, gan_input,
                     images, loss_fn,
                     accumulate=False,  # perform update
-                    zero_grad=spoofing_factor == 1,  # make gradient buffers zero if spoofing_factor is 1
+                    # make gradient buffers zero if spoofing_factor is 1
+                    zero_grad=spoofing_factor == 1,
                     num_accumulations=spoofing_factor)
 
                 # =================================================================
@@ -655,7 +682,8 @@ class MSG_GAN:
                     # otherwise make them
                     os.makedirs(sample_dir, exist_ok=True)
                     for gen_img_file in gen_img_files:
-                        os.makedirs(os.path.dirname(gen_img_file), exist_ok=True)
+                        os.makedirs(os.path.dirname(
+                            gen_img_file), exist_ok=True)
 
                     # following zero_grads are required to allow pytorch
                     # adjust buffers properly on the GPU.
@@ -677,8 +705,10 @@ class MSG_GAN:
 
             if epoch % checkpoint_factor == 0 or epoch == 1 or epoch == num_epochs:
                 os.makedirs(save_dir, exist_ok=True)
-                gen_save_file = os.path.join(save_dir, "GAN_GEN_" + str(epoch) + ".pth")
-                dis_save_file = os.path.join(save_dir, "GAN_DIS_" + str(epoch) + ".pth")
+                gen_save_file = os.path.join(
+                    save_dir, "GAN_GEN_" + str(epoch) + ".pth")
+                dis_save_file = os.path.join(
+                    save_dir, "GAN_DIS_" + str(epoch) + ".pth")
                 gen_optim_save_file = os.path.join(save_dir,
                                                    "GAN_GEN_OPTIM_" + str(epoch) + ".pth")
                 dis_optim_save_file = os.path.join(save_dir,
@@ -695,7 +725,7 @@ class MSG_GAN:
                     th.save(self.gen_shadow.state_dict(), gen_shadow_save_file)
 
                 print("log_fid_values:", log_fid_values)
-                if log_fid_values:  # perform the following fid calculations during training 
+                if log_fid_values:  # perform the following fid calculations during training
                     # if the boolean is set to true
                     # ==================================================================
                     # Perform the FID calculation during training for estimating
@@ -713,19 +743,21 @@ class MSG_GAN:
                     generated_images = 0
 
                     while generated_images < num_fid_images:
-                        b_size = min(fid_batch_size, num_fid_images - generated_images)
-                        points = th.randn(b_size, self.latent_size).to(self.device)
+                        b_size = min(fid_batch_size,
+                                     num_fid_images - generated_images)
+                        points = th.randn(
+                            b_size, self.latent_size).to(self.device)
                         if normalize_latents:
                             points = (points / points.norm(dim=1, keepdim=True)) \
-                                     * (self.latent_size ** 0.5)
+                                * (self.latent_size ** 0.5)
                             imgs = self.gen(points)[-1].detach()
                         for i in range(len(imgs)):
                             imgs[i] = Generator.adjust_dynamic_range(imgs[i])
                         pbar.update(b_size)
                         for img in imgs:
                             imwrite(os.path.join(fid_temp_folder,
-                                                str(generated_images) + ".jpg"),
-                                   img.permute(1, 2, 0).cpu())
+                                                 str(generated_images) + ".jpg"),
+                                    img.permute(1, 2, 0).cpu())
                             generated_images += 1
                     pbar.close()
 

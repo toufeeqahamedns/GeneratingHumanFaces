@@ -43,7 +43,7 @@ except ImportError:
     def tqdm(x):
         return x
 
-from MSG_GAN.FID.inception import InceptionV3
+from GAN.FID.inception import InceptionV3
 
 
 def get_activations(files, model, batch_size=50, dims=2048,

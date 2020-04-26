@@ -4,161 +4,67 @@ import os
 import numpy as np
 from torch.utils.data import Dataset
 
+class RawTextFace2TextDataset(Dataset):
+    """ PyTorch Dataset wrapper around the Face2Text dataset
+        Raw text version
+    """
 
-class FlatDirectoryImageDataset(Dataset):
-    """ pyTorch Dataset wrapper for the generic flat directory images dataset """
-
-    def __setup_files(self):
+    def __load_data(self):
         """
-        private helper for setting up the files_list
-        :return: files => list of paths of files
+        private helper for loading the annotations and file names from the annotations file
+        :return: images, descs => images and descriptions
         """
-        file_names = os.listdir(self.data_dir)
-        files = []  # initialize to empty list
+        from data_processing.TextExtractor import read_annotations, basic_preprocess
+        images, descs = read_annotations(self.annots_file_path)
+        # preprocess the descriptions:
+        descs = basic_preprocess(descs)
 
-        for file_name in file_names:
-            possible_file = os.path.join(self.data_dir, file_name)
-            if os.path.isfile(possible_file):
-                files.append(possible_file)
+        return images, descs
 
-        # return the files list
-        return files
-
-    def __init__(self, data_dir, transform=None):
+    def __init__(self, annots_file, img_dir, img_transform=None):
         """
-        constructor for the class
-        :param data_dir: path to the directory containing the data
-        :param transform: transforms to be applied to the images
+        constructor of the class
+        :param annots_file: annotations file
+        :param img_dir: path to the images directory
+        :param img_transform: torch_vision transform to apply
         """
-        # define the state of the object
-        self.data_dir = data_dir
-        self.transform = transform
 
-        # setup the files for reading
-        self.files = self.__setup_files()
+        # create state:
+        self.base_path = img_dir
+        self.annots_file_path = annots_file
+        self.transform = img_transform
+
+        self.images, self.descs = self.__load_data()
+
+        # extract all the data
 
     def __len__(self):
         """
-        compute the length of the dataset
-        :return: len => length of dataset
+        obtain the length of the data-items
+        :return: len => length
         """
-        return len(self.files)
+        return len(self.images)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, ix):
         """
-        obtain the image (read and transform)
-        :param idx: index of the file required
-        :return: img => image array
+        code to obtain a specific item at the given index
+        :param ix: index for element query
+        :return: (caption, img) => caption and the image
         """
-        from PIL import Image
 
-        # read the image:
-        img_name = self.files[idx]
-        if img_name[-4:] == ".npy":
-            img = np.load(img_name)
-            img = Image.fromarray(img.squeeze(0).transpose(1, 2, 0))
-        else:
-            img = Image.open(img_name).convert("RGB")
+        # read the image at the given index
+        img_file_path = os.path.join(self.base_path, self.images[ix])
+        img = PIL.Image.open(img_file_path)
 
-        # apply the transforms on the image
+        # transform the image if required
         if self.transform is not None:
             img = self.transform(img)
 
-        # return the image:
-        return img
+        # get the raw_text caption:
+        caption = self.descs[ix]
 
-
-class FoldersDistributedDataset(Dataset):
-    """ pyTorch Dataset wrapper for the MNIST dataset """
-
-    def __setup_files(self):
-        """
-        private helper for setting up the files_list
-        :return: files => list of paths of files
-        """
-
-        dir_names = os.listdir(self.data_dir)
-        files = []  # initialize to empty list
-
-        for dir_name in dir_names:
-            file_path = os.path.join(self.data_dir, dir_name)
-            file_names = os.listdir(file_path)
-            for file_name in file_names:
-                possible_file = os.path.join(file_path, file_name)
-                if os.path.isfile(possible_file):
-                    files.append(possible_file)
-
-        # return the files list
-        return files
-
-    def __init__(self, data_dir, transform=None):
-        """
-        constructor for the class
-        :param data_dir: path to the directory containing the data
-        :param transform: transforms to be applied to the images
-        """
-        # define the state of the object
-        self.data_dir = data_dir
-        self.transform = transform
-
-        # setup the files for reading
-        self.files = self.__setup_files()
-
-    def __len__(self):
-        """
-        compute the length of the dataset
-        :return: len => length of dataset
-        """
-        return len(self.files)
-
-    def __getitem__(self, idx):
-        """
-        obtain the image (read and transform)
-        :param idx: index of the file required
-        :return: img => image array
-        """
-        from PIL import Image
-
-        # read the image:
-        img_name = self.files[idx]
-        if img_name[-4:] == ".npy":
-            img = np.load(img_name)
-            img = Image.fromarray(img)
-        else:
-            img = Image.open(img_name).convert("RGB")
-
-        # apply the transforms on the image
-        if self.transform is not None:
-            img = self.transform(img)
-
-        # return the image:
-        return img
-
-
-class IgnoreLabels(Dataset):
-
-    def __init__(self, dataset):
-        """
-        Dataset Decorator (traditional) for ignoring labels in a dataset
-        :param dataset: Dataset which returns (image, target) pair
-        """
-        self.dataset = dataset
-
-    def __len__(self):
-        """
-        simple delegation to the original dataset
-        :return: length of the dataset
-        """
-        return len(self.dataset)
-
-    def __getitem__(self, item):
-        """
-        overrides the __getitem__ of the original dataset to ignore the label
-        :param item: index of item (same as before)
-        :return: img => returns just the image
-        """
-        return self.dataset[item][0]  # ignores the label
-
+        # return the data element
+        return caption, img
 
 def get_transform(new_size=None, flip_horizontal=False):
     """

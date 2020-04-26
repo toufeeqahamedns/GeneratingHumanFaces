@@ -349,14 +349,17 @@ class MinibatchStdDev(th.nn.Module):
 class DisFinalBlock(th.nn.Module):
     """ Final block for the Discriminator """
 
-    def __init__(self, in_channels, use_eql=True):
+    def __init__(self, in_channels, in_latent_size, out_latent_size, use_eql=True):
         """
         constructor of the class
         :param in_channels: number of input channels
+        :param in_latent_Size: size of input latent vectors
+        :param out_latent_size: size of the transformed latent vectors
         :param use_eql: whether to use equalized learning rate
         """
         from torch.nn import LeakyReLU
         from torch.nn import Conv2d
+        from torch.nn import Linear
 
         super().__init__()
 
@@ -364,6 +367,8 @@ class DisFinalBlock(th.nn.Module):
         self.batch_discriminator = MinibatchStdDev()
 
         if use_eql:
+            self.compressor = _equalized_linear(
+                c_in=in_latent_size, c_out=out_latent_size)
             self.conv_1 = _equalized_conv2d(in_channels + 1, in_channels, (3, 3),
                                             pad=1, bias=True)
             self.conv_2 = _equalized_conv2d(in_channels, in_channels, (4, 4),
@@ -374,7 +379,10 @@ class DisFinalBlock(th.nn.Module):
 
         else:
             # modules required:
-            self.conv_1 = Conv2d(in_channels + 1, in_channels, (3, 3), padding=1, bias=True)
+            self.compressor = Linear(
+                in_features=in_latent_size, out_features=out_latent_size, bias=True)
+            self.conv_1 = Conv2d(in_channels + 1, in_channels,
+                                 (3, 3), padding=1, bias=True)
             self.conv_2 = Conv2d(in_channels, in_channels, (4, 4), bias=True)
 
             # final conv layer emulates a fully connected layer
@@ -383,10 +391,11 @@ class DisFinalBlock(th.nn.Module):
         # leaky_relu:
         self.lrelu = LeakyReLU(0.2)
 
-    def forward(self, x):
+    def forward(self, x, latent_vector):
         """
         forward pass of the FinalBlock
         :param x: input
+        :param latent_vector: latent for conditional discrimination
         :return: y => output
         """
         # minibatch_std_dev layer
@@ -394,6 +403,17 @@ class DisFinalBlock(th.nn.Module):
 
         # define the computations
         y = self.lrelu(self.conv_1(y))
+        # apply the latent vector here
+        compressed_latent_vector = self.compressor(latent_vector)
+        cat = th.unsqueeze(th.unsqueeze(compressed_latent_vector, -1), -1)
+        cat = cat.expand(
+            compressed_latent_vector.shape[0],
+            compressed_latent_vector.shape[1],
+            y.shape[2],
+            y.shape[3]
+        )
+        y = th.cat((y, cat), dim=1)
+
         y = self.lrelu(self.conv_2(y))
 
         # fully connected layer
@@ -431,7 +451,7 @@ class DisGeneralConvBlock(th.nn.Module):
 
         # downsapmler
         self.downsampler = AvgPool2d(2)
- 
+
         # leaky_relu:
         self.lrelu = LeakyReLU(0.2)
 
