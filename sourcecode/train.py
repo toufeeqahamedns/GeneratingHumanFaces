@@ -23,6 +23,39 @@ def parse_arguments():
     """
     parser = argparse.ArgumentParser()
 
+    # =======================================================================================
+    # ENCODER RELATED ARGUMENTS ... :)
+    # =======================================================================================
+
+    parser.add_argument("--encoder_file", action="store", type=str, default=None,
+                        help="pretrained encoder file (compatible with my code)")
+
+    parser.add_argument("--embedding_file", action="store", typr=str, default=None,
+                        help="embedding file")
+
+    # =======================================================================================
+    # AUGMENTOR RELATED ARGUMENTS ... :)
+    # =======================================================================================
+
+    parser.add_argument("--ca_file", action="store", type=str, default=None,
+                        help="pretrained conditioning augmentor file (compatible with my code)")
+
+    parser.add_argument("--ca_optim_file", action="store", type=str, default=None,
+                        help="saved state for conditioning augmentor")
+
+    parser.add_argument("--ca_hidden_size", action="store", type=int, default=4096,
+                        help="output size of the pretrained encoder")
+    
+    parser.add_argument("--ca_out_size", action="store", type=int, default=256,
+                        help="output size of the conditioning augmentor")
+
+    parser.add_argument("--compressed_latent_size", action="store", type=int, default=128,
+                        help="output size of the compressed latents")
+
+    # =======================================================================================
+    # GAN RELATED ARGUMENTS ... :)
+    # =======================================================================================
+
     parser.add_argument("--generator_file", action="store", type=str,
                         default=None,
                         help="pretrained weights file for generator")
@@ -43,19 +76,12 @@ def parse_arguments():
                         default=None,
                         help="saved state for discriminator optimizer")
 
-    parser.add_argument("--pytorch_dataset", action="store", type=str,
-                        default=None,
-                        help="Whether to use a default pytorch dataset" +
-                             "Currently supported:" +
-                             "1.) cifar-10")
+    parser.add_argument("--annotation_file", action="store",
+                        type=str, default=None, help="annotation file")
 
     parser.add_argument("--images_dir", action="store", type=str,
                         default="../data/celeba",
                         help="path for the images directory")
-
-    parser.add_argument("--folder_distributed", action="store", type=bool,
-                        default=False,
-                        help="whether the images directory contains folders or not")
 
     parser.add_argument("--flip_augment", action="store", type=bool,
                         default=True,
@@ -189,71 +215,86 @@ def main(args):
     :param args: parsed command line arguments
     :return: None
     """
-    from MSG_GAN.GAN import MSG_GAN
-    from data_processing.DataLoader import FlatDirectoryImageDataset, \
-        get_transform, get_data_loader, FoldersDistributedDataset, IgnoreLabels
-    from torchvision.datasets import CIFAR10
-    from MSG_GAN import Losses as lses
+    from GAN.GAN import GAN
+    from data_processing.DataLoader import get_transform, get_data_loader, \
+        RawTextFace2TextDataset
+    from GAN import Losses as lses
+    from GAN.TextEncoder import PretrainedEncoder
+    from GAN.ConditionAugmentation import ConditionAugmentor
 
     # transformation routine:
     res = int(np.power(2, args.depth + 1))
-    img_transform = get_transform((res, res), flip_horizontal=args.flip_augment)
+    img_transform = get_transform(
+        (res, res), flip_horizontal=args.flip_augment)
 
     # create a data source:
-    if args.pytorch_dataset is None:
-        data_source = FlatDirectoryImageDataset if not args.folder_distributed \
-            else FoldersDistributedDataset
+    dataset = RawTextFace2TextDataset(
+        annots_file=args.annotations_file,
+        img_dir=args.images_dir,
+        img_transform=img_transform,
+    )
 
-        dataset = data_source(
-            args.images_dir,
-            transform=img_transform)
-    else:
-        dataset_name = args.pytorch_dataset.lower()
-        if dataset_name == "cifar-10":
-            dataset = IgnoreLabels(CIFAR10(
-                args.images_dir,  transform=img_transform, download=True))
-        else:
-            raise Exception("Unknown dataset  requested")
+    # create a new session object for the pretrained encoder:
+    text_encoder = PretrainedEncoder(
+        model_file=args.encoder_file,
+        embedding_file=args.embedding_file,
+        device=device,
+    )
+    encoder_optim = None
 
     data = get_data_loader(dataset, args.batch_size, args.num_workers)
     print("Total number of images in the dataset:", len(dataset))
 
     # create a gan from these
-    msg_gan = MSG_GAN(depth=args.depth,
-                      latent_size=args.latent_size,
-                      use_eql=args.use_eql,
-                      use_ema=args.use_ema,
-                      ema_decay=args.ema_decay,
-                      device=device)
+    gan = GAN(depth=args.depth,
+              latent_size=args.latent_size,
+              ca_hidden_size=args.ca_hidden_size,
+              ca_out_size=args.ca_out_size,
+              use_eql=args.use_eql,
+              use_ema=args.use_ema,
+              ema_decay=args.ema_decay,
+              device=device)
+
+    if args.ca_file is not None:
+        print("loading conditioning augmenter from:", args.ca_file)
+        gan.ca.load_state_dict(th.load(args.ca_file))
+
+    print("Augmentor Configuration: ")
+    print(gan.ca)
 
     if args.generator_file is not None:
         # load the weights into generator
         print("loading generator_weights from:", args.generator_file)
-        msg_gan.gen.load_state_dict(th.load(args.generator_file))
+        gan.gen.load_state_dict(th.load(args.generator_file))
 
     print("Generator Configuration: ")
-    print(msg_gan.gen)
+    print(gan.gen)
 
     if args.shadow_generator_file is not None:
         # load the weights into generator
         print("loading shadow_generator_weights from:",
               args.shadow_generator_file)
-        msg_gan.gen_shadow.load_state_dict(
+        gan.gen_shadow.load_state_dict(
             th.load(args.shadow_generator_file))
 
     if args.discriminator_file is not None:
         # load the weights into discriminator
         print("loading discriminator_weights from:", args.discriminator_file)
-        msg_gan.dis.load_state_dict(th.load(args.discriminator_file))
+        gan.dis.load_state_dict(th.load(args.discriminator_file))
 
     print("Discriminator Configuration: ")
-    print(msg_gan.dis)
+    print(gan.dis)
+
+    # create the optimizer for Condition Augmenter separately
+    ca_optim = th.optim.Adam(gan.ca.parameters(),
+                             lr=args.a_lr,
+                             betas=[args.adam_beta1, args.adam_beta2])
 
     # create optimizer forImportError: No module named 'networks.pro_gan_pytorch' generator:
-    gen_optim = th.optim.Adam(msg_gan.gen.parameters(), args.g_lr,
+    gen_optim = th.optim.Adam(gan.gen.parameters(), args.g_lr,
                               [args.adam_beta1, args.adam_beta2])
 
-    dis_optim = th.optim.Adam(msg_gan.dis.parameters(), args.d_lr,
+    dis_optim = th.optim.Adam(gan.dis.parameters(), args.d_lr,
                               [args.adam_beta1, args.adam_beta2])
 
     if args.generator_optim_file is not None:
@@ -282,11 +323,14 @@ def main(args):
         raise Exception("Unknown loss function requested")
 
     # train the GAN
-    msg_gan.train(
+    gan.train(
         data,
         gen_optim,
         dis_optim,
-        loss_fn=loss(msg_gan.dis),
+        ca_optim,
+        text_encoder,
+        encoder_optim,
+        loss_fn=loss(gan.dis),
         num_epochs=args.num_epochs,
         checkpoint_factor=args.checkpoint_factor,
         data_percentage=args.data_percentage,

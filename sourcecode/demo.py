@@ -5,7 +5,7 @@ import torch as th
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-from MSG_GAN.GAN import Generator
+from GAN.GAN import Generator
 from generate_multi_scale_samples import progressive_upscaling
 from torchvision.utils import make_grid
 from math import ceil, sqrt

@@ -8,3 +8,4 @@ real_data_stats/
 # ignore these folders too:
 fid_plots/
 inception_plots/
+__pycache__
