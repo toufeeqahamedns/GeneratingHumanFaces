@@ -80,7 +80,6 @@ class StandardGAN(GANLoss):
         return self.criterion(th.squeeze(preds),
                               th.ones(fake_samps.shape[0]).to(fake_samps.device))
 
-
 class WGAN_GP(GANLoss):
 
     def __init__(self, dis, drift=0.001, use_gp=False):
@@ -141,7 +140,6 @@ class WGAN_GP(GANLoss):
 
         return loss
 
-
 class LSGAN(GANLoss):
 
     def __init__(self, dis):
@@ -153,7 +151,6 @@ class LSGAN(GANLoss):
 
     def gen_loss(self, _, fake_samps):
         return 0.5 * ((th.mean(self.dis(fake_samps)) - 1) ** 2)
-
 
 class LSGAN_SIGMOID(GANLoss):
 
@@ -171,7 +168,6 @@ class LSGAN_SIGMOID(GANLoss):
         scores = th.mean(sigmoid(self.dis(fake_samps)))
         return 0.5 * ((scores - 1) ** 2)
 
-
 class HingeGAN(GANLoss):
 
     def __init__(self, dis):
@@ -188,7 +184,6 @@ class HingeGAN(GANLoss):
 
     def gen_loss(self, _, fake_samps):
         return -th.mean(self.dis(fake_samps))
-
 
 class RelativisticAverageHingeGAN(GANLoss):
 

@@ -1,7 +1,6 @@
 """ Module containing custom layers """
 import torch as th
 
-
 # ==========================================================
 # Equalized learning rate blocks:
 # extending Conv2D and Deconv2D layers for equalized learning rate logic
@@ -56,7 +55,6 @@ class _equalized_conv2d(th.nn.Module):
     def extra_repr(self):
         return ", ".join(map(str, self.weight.shape))
 
-
 class _equalized_deconv2d(th.nn.Module):
     """ Transpose convolution using the equalized learning rate
         Args:
@@ -107,7 +105,6 @@ class _equalized_deconv2d(th.nn.Module):
     def extra_repr(self):
         return ", ".join(map(str, self.weight.shape))
 
-
 class _equalized_linear(th.nn.Module):
     """ Linear layer using equalized learning rate
         Args:
@@ -146,7 +143,6 @@ class _equalized_linear(th.nn.Module):
         return linear(x, self.weight * self.scale,
                       self.bias if self.use_bias else None)
 
-
 # -----------------------------------------------------------------------------------
 # Pixelwise feature vector normalization.
 # reference:
@@ -166,7 +162,6 @@ class PixelwiseNorm(th.nn.Module):
         y = x.pow(2.).mean(dim=1, keepdim=True).add(alpha).sqrt()  # [N1HW]
         y = x / y  # normalize the input x volume
         return y
-
 
 # ==========================================================
 # Layers required for Building The generator and
@@ -225,7 +220,6 @@ class GenInitialBlock(th.nn.Module):
 
         return y
 
-
 class GenGeneralConvBlock(th.nn.Module):
     """ Module implementing a general convolutional block """
 
@@ -274,7 +268,6 @@ class GenGeneralConvBlock(th.nn.Module):
 
         return y
 
-
 # function to calculate the Exponential moving averages for the Generator weights
 # This function updates the exponential average weights based on the current training
 def update_average(model_tgt, model_src, beta):
@@ -305,7 +298,6 @@ def update_average(model_tgt, model_src, beta):
     # turn back on the gradient calculation
     toggle_grad(model_tgt, True)
     toggle_grad(model_src, True)
-
 
 class MinibatchStdDev(th.nn.Module):
     """
@@ -344,7 +336,6 @@ class MinibatchStdDev(th.nn.Module):
 
         # return the computed values:
         return y
-
 
 class DisFinalBlock(th.nn.Module):
     """ Final block for the Discriminator """
@@ -421,7 +412,6 @@ class DisFinalBlock(th.nn.Module):
 
         # flatten the output raw discriminator scores
         return y.view(-1)
-
 
 class DisGeneralConvBlock(th.nn.Module):
     """ General block in the discriminator  """

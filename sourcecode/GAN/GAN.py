@@ -223,7 +223,6 @@ class Discriminator(th.nn.Module):
         # return calculated y
         return y
 
-
 class GAN:
     """ Unconditional MSG-GAN
 
@@ -616,7 +615,6 @@ class GAN:
 
             # setup the dataloader (where the real images are sampled from)
             real_data_store = iter(hn_wrapper(data))
-            print(real_data_store)
             batch_counter = 0  # counter for number of batches completed
             # this includes the two Generator passes and spoofing adjusted
             # batch_sizes
