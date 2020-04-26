@@ -27,10 +27,13 @@ def parse_arguments():
     # ENCODER RELATED ARGUMENTS ... :)
     # =======================================================================================
 
-    parser.add_argument("--encoder_file", action="store", type=str, default=None,
+    parser.add_argument("--annotations_file", action="store", type=str, default="/home/toufeeq/CollegeProject/GeneratingHumanFaces/data/face2text_v1.0/raw.json",
+                        help="annotation file")
+
+    parser.add_argument("--encoder_file", action="store", type=str, default="/home/toufeeq/CollegeProject/GeneratingHumanFaces/data/models/infersent2.pkl",
                         help="pretrained encoder file (compatible with my code)")
 
-    parser.add_argument("--embedding_file", action="store", typr=str, default=None,
+    parser.add_argument("--embedding_file", action="store", type=str, default="/home/toufeeq/CollegeProject/GeneratingHumanFaces/data/models/crawl-300d-2M.vec",
                         help="embedding file")
 
     # =======================================================================================
@@ -45,12 +48,16 @@ def parse_arguments():
 
     parser.add_argument("--ca_hidden_size", action="store", type=int, default=4096,
                         help="output size of the pretrained encoder")
-    
+
     parser.add_argument("--ca_out_size", action="store", type=int, default=256,
                         help="output size of the conditioning augmentor")
 
     parser.add_argument("--compressed_latent_size", action="store", type=int, default=128,
                         help="output size of the compressed latents")
+
+    parser.add_argument("--a_lr", action="store", type=float,
+                        default=0.003,
+                        help="learning rate for augmentor")
 
     # =======================================================================================
     # GAN RELATED ARGUMENTS ... :)

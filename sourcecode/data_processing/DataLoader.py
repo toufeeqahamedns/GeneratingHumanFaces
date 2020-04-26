@@ -3,6 +3,7 @@
 import os
 import numpy as np
 from torch.utils.data import Dataset
+import PIL
 
 class RawTextFace2TextDataset(Dataset):
     """ PyTorch Dataset wrapper around the Face2Text dataset
