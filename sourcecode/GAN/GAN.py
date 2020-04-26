@@ -420,6 +420,53 @@ class GAN:
                                   normalize=True, scale_each=True, padding=0)
                 sum_writer.add_image(res, image, step)
 
+    def create_grid_fixed(self, samples, scale_factor, img_file, real_imgs=False):
+        """
+        utility function to create a grid of GAN samples
+        :param samples: generated samples for storing
+        :param scale_factor: factor for upscaling the image
+        :param img_file: name of file to write
+        :param real_imgs: turn off the scaling of images
+        :return: None (saves a file)
+        """
+        from torchvision.utils import save_image
+        from torch.nn.functional import interpolate
+
+        samples = th.clamp((samples / 2) + 0.5, min=0, max=1)
+
+        # upsample the image
+        if not real_imgs and scale_factor > 1:
+            samples = interpolate(samples,
+                                  scale_factor=scale_factor)
+
+        # save the images:
+        save_image(samples, img_file, nrow=int(np.sqrt(len(samples))))
+
+    def create_descriptions_file(self, file, captions, dataset):
+        """
+        utility function to create a file for storing the captions
+        :param file: file for storing the captions
+        :param captions: encoded_captions or raw captions
+        :param dataset: the dataset object for transforming captions
+        :return: None (saves a file)
+        """
+        from functools import reduce
+
+        # transform the captions to text:
+        if isinstance(captions, th.Tensor):
+            captions = list(map(lambda x: dataset.get_english_caption(x.cpu()),
+                                [captions[i] for i in range(captions.shape[0])]))
+
+            with open(file, "w") as filler:
+                for caption in captions:
+                    filler.write(reduce(lambda x, y: x + " " + y, caption, ""))
+                    filler.write("\n\n")
+        else:
+            with open(file, "w") as filler:
+                for caption in captions:
+                    filler.write(caption)
+                    filler.write("\n\n")
+
     def _downsampled_images(self, images):
         """
         private utility function to compute list of downsampled images
@@ -434,7 +481,7 @@ class GAN:
 
         return images
 
-    def _get_images_and_latents(self, data_store, normalize_latents):
+    def _get_images_and_latents(self, data_store, encoder, normalize_latents):
         """
         private utility function to obtain random latent_points and
         downsampled images from the datastore
@@ -444,16 +491,23 @@ class GAN:
         """
         # extract current batch of data for training
         batch_captions, batch_images = next(data_store)
-        
+        captions = batch_captions
         images = batch_images.to(self.device)
-        extracted_batch_size = images.shape[0]
 
         # list of downsampled versions of images
         images = self._downsampled_images(images)
 
-        # sample some random latent points
-        gan_input = th.randn(
-            extracted_batch_size, self.latent_size).to(self.device)
+        embeddings = encoder(captions)
+        embeddings = th.from_numpy(embeddings).to(self.device)
+
+        c_not_hats, mus, sigmas = self.ca(embeddings)
+
+        noise = th.randn(
+            captions.shape[0] if isinstance(
+                captions, th.Tensor) else len(captions),
+            self.latent_size - c_not_hats.shape[-1]).to(self.device)
+
+        gan_input = th.cat((c_not_hats, noise), dim=-1)
 
         # normalize them if asked
         if normalize_latents:
@@ -461,7 +515,7 @@ class GAN:
                           / gan_input.norm(dim=-1, keepdim=True))
                          * (self.latent_size ** 0.5))
 
-        return images, gan_input
+        return captions, images, gan_input, mus, sigmas
 
     def train(self, data, gen_optim, dis_optim, ca_optim, text_encoder, encoder_optim, loss_fn, normalize_latents=True,
               start=1, num_epochs=12, spoofing_factor=1,
@@ -534,11 +588,18 @@ class GAN:
                  for dep in range(2, self.depth + 2)]
 
         # create fixed_input for debugging
-        fixed_input = th.randn(num_samples, self.latent_size).to(self.device)
-        if normalize_latents:
-            fixed_input = (fixed_input
-                           / fixed_input.norm(dim=-1, keepdim=True)
-                           * (self.latent_size ** 0.5))
+        real_data_store = iter(hn_wrapper(data))
+        fixed_captions, fixed_real_images, fixed_input, _, _ = self._get_images_and_latents(
+            real_data_store, text_encoder, normalize_latents)
+
+        # save the fixed images once
+        fixed_save_dir = os.path.join(sample_dir, "__Real_Info__")
+        os.makedirs(fixed_save_dir, exist_ok=True)
+        self.create_grid_fixed(fixed_real_images, None,  # scale factor is not required here
+                               os.path.join(fixed_save_dir, "real_samples.png"), real_imgs=True)
+        self.create_descriptions_file(os.path.join(fixed_save_dir, "real_captions.txt"),
+                                      fixed_captions,
+                                      real_data_store)
 
         viter_samples = 2 * data.batch_size * spoofing_factor
         total_imgs = len(data.dataset)
@@ -578,8 +639,8 @@ class GAN:
                     # =============================================================
 
                     # sample images and latents for discriminator pass
-                    images, gan_input = self._get_images_and_latents(
-                        real_data_store, normalize_latents)
+                    _, images, gan_input, _, _ = self._get_images_and_latents(
+                        real_data_store, text_encoder, normalize_latents)
 
                     # accumulate gradients in the discriminator:
                     dis_loss += self.optimize_discriminator(
@@ -595,8 +656,8 @@ class GAN:
                 # =============================================================
 
                 # sample images and latents for discriminator pass
-                images, gan_input = self._get_images_and_latents(
-                    real_data_store, normalize_latents)
+                _, images, gan_input, _, _ = self._get_images_and_latents(
+                    real_data_store, text_encoder, normalize_latents)
 
                 # accumulate final gradients in the discriminator and make a step:
                 dis_loss += self.optimize_discriminator(
@@ -619,9 +680,13 @@ class GAN:
                     # =============================================================
 
                     # re-sample images and latents for generator pass
-                    images, gan_input = self._get_images_and_latents(
-                        real_data_store, normalize_latents)
+                    _, images, gan_input, mus, sigmas = self._get_images_and_latents(
+                        real_data_store, text_encoder, normalize_latents)
 
+                    if encoder_optim is not None:
+                        encoder_optim.zero_grad()
+
+                    ca_optim.zero_grad()
                     # accumulate gradients in the generator
                     gen_loss += self.optimize_generator(
                         gen_optim, gan_input,
@@ -630,15 +695,25 @@ class GAN:
                         zero_grad=(spoofing_iter == 0),
                         num_accumulations=spoofing_factor)
 
+                    kl_loss = th.mean(0.5 * th.sum((mus ** 2) + (sigmas ** 2)
+                                                   - th.log((sigmas ** 2)) - 1, dim=1))
+                    kl_loss.backward()
+                    ca_optim.step()
+                    if encoder_optim is not None:
+                        encoder_optim.step()
                 # =============================================================
                 # Generator update pass
                 # (note values for accumulate and zero_grad)
                 # =============================================================
 
                 # sample images and latents for generator pass
-                images, gan_input = self._get_images_and_latents(
-                    real_data_store, normalize_latents)
+                _, images, gan_input, _, _ = self._get_images_and_latents(
+                    real_data_store, text_encoder, normalize_latents)
 
+                if encoder_optim is not None:
+                    encoder_optim.zero_grad()
+
+                ca_optim.zero_grad()
                 # accumulate final gradients in the generator and make a step:
                 gen_loss += self.optimize_generator(
                     gen_optim, gan_input,
@@ -648,6 +723,12 @@ class GAN:
                     zero_grad=spoofing_factor == 1,
                     num_accumulations=spoofing_factor)
 
+                kl_loss = th.mean(0.5 * th.sum((mus ** 2) + (sigmas ** 2)
+                                               - th.log((sigmas ** 2)) - 1, dim=1))
+                kl_loss.backward()
+                ca_optim.step()
+                if encoder_optim is not None:
+                    encoder_optim.step()
                 # =================================================================
 
                 # increment the global_step and the batch_counter:
@@ -659,20 +740,21 @@ class GAN:
                         batch_counter == 1:
                     elapsed = time.time() - global_time
                     elapsed = str(datetime.timedelta(seconds=elapsed))
-                    print("Elapsed [%s] batch: %d  d_loss: %f  g_loss: %f"
-                          % (elapsed, batch_counter, dis_loss, gen_loss))
+                    print("Elapsed [%s] batch: %d  d_loss: %f  g_loss: %f kl_loss: %f"
+                          % (elapsed, batch_counter, dis_loss, gen_loss, kl_loss.item()))
 
                     # add summary of the losses
                     sum_writer.add_scalar("dis_loss", dis_loss, global_step)
                     sum_writer.add_scalar("gen_loss", gen_loss, global_step)
-
+                    sum_writer.add_scalar("kl_loss", kl_loss.item(), global_step)
+                    
                     # also write the losses to the log file:
                     if log_dir is not None:
                         log_file = os.path.join(log_dir, "loss.log")
                         os.makedirs(os.path.dirname(log_file), exist_ok=True)
                         with open(log_file, "a") as log:
                             log.write(str(global_step) + "\t" + str(dis_loss) +
-                                      "\t" + str(gen_loss) + "\n")
+                                      "\t" + str(gen_loss) + "\t" + str(kl_loss.item()) + "\n")
 
                     # create a grid of samples and save it
                     gen_img_files = [os.path.join(sample_dir, res, "gen_" +
@@ -707,17 +789,21 @@ class GAN:
 
             if epoch % checkpoint_factor == 0 or epoch == 1 or epoch == num_epochs:
                 os.makedirs(save_dir, exist_ok=True)
+                ca_save_file = os.path.join(save_dir, "CA_" + str(epoch) + ".pth")
                 gen_save_file = os.path.join(
                     save_dir, "GAN_GEN_" + str(epoch) + ".pth")
                 dis_save_file = os.path.join(
                     save_dir, "GAN_DIS_" + str(epoch) + ".pth")
+                ca_optim_save_file = os.path.join(save_dir, "CA_OPTIM_" + str(epoch) + ".pth")
                 gen_optim_save_file = os.path.join(save_dir,
                                                    "GAN_GEN_OPTIM_" + str(epoch) + ".pth")
                 dis_optim_save_file = os.path.join(save_dir,
                                                    "GAN_DIS_OPTIM_" + str(epoch) + ".pth")
 
+                th.save(self.ca.state_dict(), ca_save_file)
                 th.save(self.gen.state_dict(), gen_save_file)
                 th.save(self.dis.state_dict(), dis_save_file)
+                th.save(ca_optim.state_dict(), ca_optim_save_file)
                 th.save(gen_optim.state_dict(), gen_optim_save_file)
                 th.save(dis_optim.state_dict(), dis_optim_save_file)
 
