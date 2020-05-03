@@ -236,8 +236,8 @@ class RelativisticAverageHingeGAN(GANLoss):
 
 class CondWGAN_GP(ConditionalGANLoss):
 
-    def __init__(self, dis, drift=0.001, use_gp=False):
-        super().__init__(dis)
+    def __init__(self, device, dis, drift=0.001, use_gp=False):
+        super().__init__(device, dis)
         self.drift = drift
         self.use_gp = use_gp
 
