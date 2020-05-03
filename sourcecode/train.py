@@ -96,7 +96,7 @@ def main(args):
     :param args: parsed command line arguments
     :return: None
     """
-    from GAN.GAN import GAN
+    from GAN.GAN import ConditionalGAN
     from data_processing.DataLoader import get_transform, get_data_loader, \
         RawTextFace2TextDataset
     from GAN import Losses as lses
@@ -130,10 +130,11 @@ def main(args):
     print("Total number of images in the dataset:", len(dataset))
 
     # create a gan from these
-    gan = GAN(depth=config.depth,
+    gan = ConditionalGAN(depth=config.depth,
               latent_size=config.latent_size,
               ca_hidden_size=config.ca_hidden_size,
               ca_out_size=config.ca_out_size,
+              loss_fn=config.loss_fn,
               use_eql=config.use_eql,
               use_ema=config.use_ema,
               ema_decay=config.ema_decay,
@@ -214,7 +215,6 @@ def main(args):
         ca_optim,
         text_encoder,
         encoder_optim,
-        loss_fn=loss(gan.dis),
         num_epochs=config.num_epochs,
         checkpoint_factor=config.checkpoint_factor,
         data_percentage=config.data_percentage,
