@@ -35,6 +35,18 @@ class GANLoss:
         """
         raise NotImplementedError("gen_loss method has not been implemented")
 
+class ConditionalGANLoss:
+    """ Base class for all losses """
+
+    def __init__(self, device, dis):
+        self.device = device
+        self.dis = dis
+
+    def dis_loss(self, real_samps, fake_samps, latent_vector):
+        raise NotImplementedError("dis_loss method has not been implemented")
+
+    def gen_loss(self, real_samps, fake_samps, latent_vector):
+        raise NotImplementedError("gen_loss method has not been implemented")
 
 # =============================================================
 # Normal versions of the Losses:
@@ -221,3 +233,63 @@ class RelativisticAverageHingeGAN(GANLoss):
         # return the loss
         return (th.mean(th.nn.ReLU()(1 + r_f_diff))
                 + th.mean(th.nn.ReLU()(1 - f_r_diff)))
+
+class CondWGAN_GP(ConditionalGANLoss):
+
+    def __init__(self, dis, drift=0.001, use_gp=False):
+        super().__init__(dis)
+        self.drift = drift
+        self.use_gp = use_gp
+
+    def __gradient_penalty(self, real_samps, fake_samps, latent_vector, reg_lambda=10):
+        """
+        private helper for calculating the gradient penalty
+        :param real_samps: real samples
+        :param fake_samps: fake samples
+        :param reg_lambda: regularisation lambda
+        :return: tensor (gradient penalty)
+        """
+
+        batch_size = real_samps.shape[0]
+
+        # generate random epsilon
+        epsilon = th.rand((batch_size, 1, 1, 1)).to(fake_samps.device)
+
+        # create the merge of both real and fake samples
+        merged = (epsilon * real_samps) + ((1 - epsilon) * fake_samps)
+        merged.requires_grad = True
+
+        # forward pass
+        op = self.dis(merged, latent_vector)
+
+        # perform backward pass from op to merged for obtaining the gradients
+        op.backward(gradient=th.ones_like(op), create_graph=True)
+        gradient = merged.grad  # this is the gradient of the op wrt. merged
+
+        # calculate the penalty using these gradients
+        gradient = gradient.view(gradient.shape[0], -1)
+        penalty = reg_lambda * ((gradient.norm(p=2, dim=1) - 1) ** 2).mean()
+
+        # return the calculated penalty:
+        return penalty
+
+    def dis_loss(self, real_samps, fake_samps, latent_vector):
+        # define the (Wasserstein) loss
+        fake_out = self.dis(fake_samps, latent_vector)
+        real_out = self.dis(real_samps, latent_vector)
+
+        loss = (th.mean(fake_out) - th.mean(real_out)
+                + (self.drift * th.mean(real_out ** 2)))
+
+        if self.use_gp:
+            # calculate the WGAN-GP (gradient penalty)
+            gp = self.__gradient_penalty(real_samps, fake_samps, latent_vector)
+            loss += gp
+
+        return loss
+
+    def gen_loss(self, _, fake_samps, latent_vector):
+        # calculate the WGAN loss for generator
+        loss = -th.mean(self.dis(fake_samps, latent_vector))
+
+        return loss
