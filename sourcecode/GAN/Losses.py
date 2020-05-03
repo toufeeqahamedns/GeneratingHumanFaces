@@ -253,7 +253,7 @@ class CondWGAN_GP(ConditionalGANLoss):
         batch_size = real_samps.shape[0]
 
         # generate random epsilon
-        epsilon = th.rand((batch_size, 1, 1, 1)).to(fake_samps.device)
+        epsilon = th.rand((batch_size, 1, 1, 1)).to(self.device)
 
         # create the merge of both real and fake samples
         merged = (epsilon * real_samps) + ((1 - epsilon) * fake_samps)

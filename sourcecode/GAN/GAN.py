@@ -948,7 +948,7 @@ class ConditionalGAN:
         self.n_critic = n_critic
 
         # define the loss function used for training the GAN
-        self.loss = self.__setup_loss(loss_fn)
+        self.loss = self.__setup_loss(self.loss_fn)
 
         if self.use_ema:
             from GAN.CustomLayers import update_average
@@ -1029,7 +1029,7 @@ class ConditionalGAN:
 
         # scale the loss by the number of accumulation steps performed
         # (if not performed, it is 1)
-        loss = loss_fn.dis_loss(real_batch, fake_samples, latent_vector) / num_accumulations
+        loss = self.loss.dis_loss(real_batch, fake_samples, latent_vector) / num_accumulations
 
         # optimize discriminator according to the accumulation dynamics
         # zero the grad of the discriminator weights if required
@@ -1197,7 +1197,7 @@ class ConditionalGAN:
         images = batch_images.to(self.device)
 
         # list of downsampled versions of images
-        images = self._downsampled_images(images)
+        # images = self._downsampled_images(images)
 
         embeddings = encoder(captions)
         embeddings = th.from_numpy(embeddings).to(self.device)
@@ -1250,6 +1250,7 @@ class ConditionalGAN:
         :param num_samples: number of samples to be drawn for feedback grid
         :param log_dir: path to directory for saving the loss.log file
         :param sample_dir: path to directory for saving generated samples' grids
+
         :param log_fid_values: boolean for whether to log fid values during training or not
         :param num_fid_images: number of images to generate for calculating the FID
         :param save_dir: path to directory for saving the trained models
