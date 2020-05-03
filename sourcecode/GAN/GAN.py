@@ -1005,7 +1005,7 @@ class ConditionalGAN:
 
         return generated_images
 
-    def optimize_discriminator(self, dis_optim, noise,
+    def optimize_discriminator(self, dis_optim, noise, latent_vector,
                                real_batch, loss_fn,
                                accumulate=False, zero_grad=True,
                                num_accumulations=1):
@@ -1029,7 +1029,7 @@ class ConditionalGAN:
 
         # scale the loss by the number of accumulation steps performed
         # (if not performed, it is 1)
-        loss = loss_fn.dis_loss(real_batch, fake_samples) / num_accumulations
+        loss = loss_fn.dis_loss(real_batch, fake_samples, latent_vector) / num_accumulations
 
         # optimize discriminator according to the accumulation dynamics
         # zero the grad of the discriminator weights if required
@@ -1046,7 +1046,7 @@ class ConditionalGAN:
         return loss.item()
 
     def optimize_generator(self, gen_optim, noise,
-                           real_batch, loss_fn,
+                           real_batch, latent_vector, loss_fn,
                            accumulate=False, zero_grad=True,
                            num_accumulations=1):
         """
@@ -1066,7 +1066,7 @@ class ConditionalGAN:
         # generate a batch of samples
         fake_samples = self.gen(noise)
 
-        loss = loss_fn.gen_loss(real_batch, fake_samples) / num_accumulations
+        loss = loss_fn.gen_loss(real_batch, fake_samples, latent_vector) / num_accumulations
 
         # optimize the generator according the accumulation dynamics
         if zero_grad:
@@ -1217,7 +1217,7 @@ class ConditionalGAN:
                           / gan_input.norm(dim=-1, keepdim=True))
                          * (self.latent_size ** 0.5))
 
-        return captions, images, gan_input, mus, sigmas
+        return captions, images, gan_input, embeddings, mus, sigmas
 
     def train(self, data, gen_optim, dis_optim, ca_optim, text_encoder, encoder_optim, normalize_latents=True,
               start=1, num_epochs=12, spoofing_factor=1,
@@ -1291,7 +1291,7 @@ class ConditionalGAN:
 
         # create fixed_input for debugging
         real_data_store = iter(hn_wrapper(data))
-        fixed_captions, fixed_real_images, fixed_input, _, _ = self._get_images_and_latents(
+        fixed_captions, fixed_real_images, fixed_input, _, _, _ = self._get_images_and_latents(
             real_data_store, text_encoder, normalize_latents)
 
         # save the fixed images once
@@ -1344,12 +1344,12 @@ class ConditionalGAN:
                     # =============================================================
 
                     # sample images and latents for discriminator pass
-                    _, images, gan_input, _, _ = self._get_images_and_latents(
+                    _, images, gan_input, embeddings, _, _ = self._get_images_and_latents(
                         real_data_store, text_encoder, normalize_latents)
 
                     # accumulate gradients in the discriminator:
                     dis_loss += self.optimize_discriminator(
-                        dis_optim, gan_input,
+                        dis_optim, gan_input, embeddings.detach(),
                         images, self.loss_fn,
                         accumulate=True,
                         zero_grad=(spoofing_iter == 0),
@@ -1361,12 +1361,12 @@ class ConditionalGAN:
                 # =============================================================
 
                 # sample images and latents for discriminator pass
-                _, images, gan_input, _, _ = self._get_images_and_latents(
+                _, images, gan_input, embeddings, _, _ = self._get_images_and_latents(
                     real_data_store, text_encoder, normalize_latents)
 
                 # accumulate final gradients in the discriminator and make a step:
                 dis_loss += self.optimize_discriminator(
-                    dis_optim, gan_input,
+                    dis_optim, gan_input, embeddings.detach(),
                     images, self.loss_fn,
                     accumulate=False,  # perform update
                     # make gradient buffers zero if spoofing_factor is 1
@@ -1385,7 +1385,7 @@ class ConditionalGAN:
                     # =============================================================
 
                     # re-sample images and latents for generator pass
-                    _, images, gan_input, mus, sigmas = self._get_images_and_latents(
+                    _, images, gan_input, embeddings, mus, sigmas = self._get_images_and_latents(
                         real_data_store, text_encoder, normalize_latents)
 
                     if encoder_optim is not None:
@@ -1395,7 +1395,7 @@ class ConditionalGAN:
                     # accumulate gradients in the generator
                     gen_loss += self.optimize_generator(
                         gen_optim, gan_input,
-                        images, self.loss_fn,
+                        images, embeddings, self.loss_fn,
                         accumulate=True,
                         zero_grad=(spoofing_iter == 0),
                         num_accumulations=spoofing_factor)
@@ -1412,7 +1412,7 @@ class ConditionalGAN:
                 # =============================================================
 
                 # sample images and latents for generator pass
-                _, images, gan_input, _, _ = self._get_images_and_latents(
+                _, images, gan_input, embeddings, _, _ = self._get_images_and_latents(
                     real_data_store, text_encoder, normalize_latents)
 
                 if encoder_optim is not None:
@@ -1422,7 +1422,7 @@ class ConditionalGAN:
                 # accumulate final gradients in the generator and make a step:
                 gen_loss += self.optimize_generator(
                     gen_optim, gan_input,
-                    images, self.loss_fn,
+                    images, embeddings, self.loss_fn,
                     accumulate=False,  # perform update
                     # make gradient buffers zero if spoofing_factor is 1
                     zero_grad=spoofing_factor == 1,
