@@ -320,7 +320,12 @@ class ConditionalDiscriminator(th.nn.Module):
         assert len(inputs) == self.depth, \
             "Mismatch between input and Network scales"
 
+        print("Forward pass of Conditional Discriminator")
+        print(len(rgb_to_features))
+        print(len(inputs))
+
         y = self.rgb_to_features[self.depth - 2](inputs[self.depth - 1])
+        print("Is it here where it breaks?????")
         y = self.layers[self.depth - 2](y)
         for x, block, converter in \
                 zip(reversed(inputs[1:-1]),
@@ -912,7 +917,7 @@ class ConditionalGAN:
             device: device to run the GAN on (GPU / CPU)
     """
 
-    def __init__(self, depth=7, latent_size=512, ca_hidden_size=4096, ca_out_size=256, loss_fn="wgan-gp",
+    def __init__(self, depth=7, latent_size=512, ca_hidden_size=4096, ca_out_size=256, loss_fn="relativistic-hinge",
                  drift=0.001, n_critic=1, use_eql=True, use_ema=True, ema_decay=0.999,
                  device=th.device("cpu")):
         """ constructor for the class """
@@ -974,13 +979,11 @@ class ConditionalGAN:
 
         if isinstance(loss, str):
             loss = loss.lower()  # lowercase the string
-            if loss == "wgan":
-                loss = losses.CondWGAN_GP(self.device, self.dis, self.drift, use_gp=False)
-                # note if you use just wgan, you will have to use weight clipping
-                # in order to prevent gradient exploding
-
-            elif loss == "wgan-gp":
-                loss = losses.CondWGAN_GP(self.device, self.dis, self.drift, use_gp=True)
+            if loss == "relativistic-hinge":
+                loss = losses.RelativisticAverageHingeGAN(self.dis)
+               
+            elif loss == "relativistic-hinge-cond":
+                loss = losses.CondRelativisticAverageHingeGAN(self.device, self.dis)
 
             else:
                 raise ValueError("Unknown loss function requested")
@@ -1273,6 +1276,9 @@ class ConditionalGAN:
         self.dis.train()
         self.ca.train()
 
+        print("Want to check the size of the data")
+        print(len(data))
+
         assert isinstance(gen_optim, th.optim.Optimizer), \
             "gen_optim is not an Optimizer"
         assert isinstance(dis_optim, th.optim.Optimizer), \
@@ -1327,6 +1333,12 @@ class ConditionalGAN:
             # this includes the two Generator passes and spoofing adjusted
             # batch_sizes
 
+
+            print("Real data store")
+            print(len(real_data_store))
+
+
+            
             # Note that this might lose the last batch (samples less than batch_size)
             # but the subsequent epochs perform random shuffling prior to starting the
             # training for that epoch
@@ -1347,6 +1359,9 @@ class ConditionalGAN:
                     # sample images and latents for discriminator pass
                     _, images, gan_input, embeddings, _, _ = self._get_images_and_latents(
                         real_data_store, text_encoder, normalize_latents)
+
+                    print("Len of images received")
+                    print(len(images))
 
                     # accumulate gradients in the discriminator:
                     dis_loss += self.optimize_discriminator(

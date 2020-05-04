@@ -24,7 +24,7 @@ def parse_arguments():
     """
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--config", action="store", type=str, default="/content/GeneratingHumanFaces/sourcecode/configs/colab.conf",
+    parser.add_argument("--config", action="store", type=str, default="/home/toufeeq/CollegeProject/GeneratingHumanFaces/sourcecode/configs/ondevice.conf",
                         help="default configuration for the Network")
 
     # =======================================================================================
