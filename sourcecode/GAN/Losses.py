@@ -234,6 +234,43 @@ class RelativisticAverageHingeGAN(GANLoss):
         return (th.mean(th.nn.ReLU()(1 + r_f_diff))
                 + th.mean(th.nn.ReLU()(1 - f_r_diff)))
 
+class CondRelativisticAverageHingeGAN(ConditionalGANLoss):
+
+    def __init__(self, device, dis):
+        super().__init__(device, dis)
+
+    def dis_loss(self, real_samps, fake_samps, latent_vector):
+        # Obtain predictions
+        r_preds = self.dis(real_samps, latent_vector)
+        f_preds = self.dis(fake_samps, latent_vector)
+
+        # difference between real and fake:
+        r_f_diff = r_preds - th.mean(f_preds)
+
+        # difference between fake and real samples
+        f_r_diff = f_preds - th.mean(r_preds)
+
+        # return the loss
+        loss = (th.mean(th.nn.ReLU()(1 - r_f_diff))
+                + th.mean(th.nn.ReLU()(1 + f_r_diff)))
+
+        return loss
+
+    def gen_loss(self, real_samps, fake_samps, latent_vector):
+        # Obtain predictions
+        r_preds = self.dis(real_samps, latent_vector)
+        f_preds = self.dis(fake_samps, latent_vector)
+
+        # difference between real and fake:
+        r_f_diff = r_preds - th.mean(f_preds)
+
+        # difference between fake and real samples
+        f_r_diff = f_preds - th.mean(r_preds)
+
+        # return the loss
+        return (th.mean(th.nn.ReLU()(1 + r_f_diff))
+                + th.mean(th.nn.ReLU()(1 - f_r_diff)))
+
 class CondWGAN_GP(ConditionalGANLoss):
 
     def __init__(self, device, dis, drift=0.001, use_gp=False):
@@ -250,7 +287,7 @@ class CondWGAN_GP(ConditionalGANLoss):
         :return: tensor (gradient penalty)
         """
 
-        batch_size = real_samps.shape[0]
+        batch_size = len(real_samps[0])
 
         # generate random epsilon
         epsilon = th.rand((batch_size, 1, 1, 1)).to(self.device)
@@ -277,7 +314,6 @@ class CondWGAN_GP(ConditionalGANLoss):
         # define the (Wasserstein) loss
         fake_out = self.dis(fake_samps, latent_vector)
         real_out = self.dis(real_samps, latent_vector)
-
         loss = (th.mean(fake_out) - th.mean(real_out)
                 + (self.drift * th.mean(real_out ** 2)))
 
