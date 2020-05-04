@@ -320,12 +320,7 @@ class ConditionalDiscriminator(th.nn.Module):
         assert len(inputs) == self.depth, \
             "Mismatch between input and Network scales"
 
-        print("Forward pass of Conditional Discriminator")
-        print(len(rgb_to_features))
-        print(len(inputs))
-
         y = self.rgb_to_features[self.depth - 2](inputs[self.depth - 1])
-        print("Is it here where it breaks?????")
         y = self.layers[self.depth - 2](y)
         for x, block, converter in \
                 zip(reversed(inputs[1:-1]),
@@ -555,8 +550,6 @@ class GAN:
         """
         # extract current batch of data for training
         batch = next(data_store)
-        print(batch)
-        print(batch)
         images = batch.to(self.device)
         extracted_batch_size = images.shape[0]
 
@@ -1276,9 +1269,6 @@ class ConditionalGAN:
         self.dis.train()
         self.ca.train()
 
-        print("Want to check the size of the data")
-        print(len(data))
-
         assert isinstance(gen_optim, th.optim.Optimizer), \
             "gen_optim is not an Optimizer"
         assert isinstance(dis_optim, th.optim.Optimizer), \
@@ -1332,13 +1322,7 @@ class ConditionalGAN:
             batch_counter = 0  # counter for number of batches completed
             # this includes the two Generator passes and spoofing adjusted
             # batch_sizes
-
-
-            print("Real data store")
-            print(len(real_data_store))
-
-
-            
+ 
             # Note that this might lose the last batch (samples less than batch_size)
             # but the subsequent epochs perform random shuffling prior to starting the
             # training for that epoch
@@ -1359,9 +1343,6 @@ class ConditionalGAN:
                     # sample images and latents for discriminator pass
                     _, images, gan_input, embeddings, _, _ = self._get_images_and_latents(
                         real_data_store, text_encoder, normalize_latents)
-
-                    print("Len of images received")
-                    print(len(images))
 
                     # accumulate gradients in the discriminator:
                     dis_loss += self.optimize_discriminator(
