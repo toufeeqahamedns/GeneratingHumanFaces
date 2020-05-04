@@ -24,7 +24,7 @@ def parse_arguments():
     """
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--config", action="store", type=str, default="/home/toufeeq/CollegeProject/GeneratingHumanFaces/sourcecode/configs/ondevice.conf",
+    parser.add_argument("--config", action="store", type=str, default="/content/GeneratingHumanFaces/sourcecode/configs/colab.conf",
                         help="default configuration for the Network")
 
     # =======================================================================================
@@ -134,7 +134,7 @@ def main(args):
               latent_size=config.latent_size,
               ca_hidden_size=config.ca_hidden_size,
               ca_out_size=config.ca_out_size,
-              loss_fn=config.loss_fn,
+              loss_fn=config.loss_function,
               use_eql=config.use_eql,
               use_ema=config.use_ema,
               ema_decay=config.ema_decay,
@@ -189,23 +189,6 @@ def main(args):
     if args.discriminator_optim_file is not None:
         print("loading dis_optim_state from:", args.discriminator_optim_file)
         dis_optim.load_state_dict(th.load(args.discriminator_optim_file))
-
-    loss_name = config.loss_function.lower()
-
-    if loss_name == "hinge":
-        loss = lses.HingeGAN
-    elif loss_name == "relativistic-hinge":
-        loss = lses.RelativisticAverageHingeGAN
-    elif loss_name == "standard-gan":
-        loss = lses.StandardGAN
-    elif loss_name == "lsgan":
-        loss = lses.LSGAN
-    elif loss_name == "lsgan-sigmoid":
-        loss = lses.LSGAN_SIGMOID
-    elif loss_name == "wgan-gp":
-        loss = lses.WGAN_GP
-    else:
-        raise Exception("Unknown loss function requested")
 
     # train the GAN
     gan.train(
