@@ -1,11 +1,19 @@
 """ script for training the MSG-GAN on given dataset """
 
+# Set to True if using in SageMaker
+USE_SAGEMAKER = False
+
 import argparse
 
 import numpy as np
 import torch as th
 import yaml
 from torch.backends import cudnn
+
+# sagemaker_containers required to access SageMaker environment (SM_CHANNEL_TRAINING, etc.)
+# See https://github.com/aws/sagemaker-containers
+if USE_SAGEMAKER:
+    import sagemaker_containers
 
 # define the device for the training script
 device = th.device("cuda" if th.cuda.is_available() else "cpu")
@@ -24,7 +32,9 @@ def parse_arguments():
     """
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--config", action="store", type=str, default="/content/GeneratingHumanFaces/sourcecode/configs/colab.conf",
+    parser.add_argument("--config", action="store", type=str,
+                        default="./configs/sagemaker.conf",
+                        # default="/content/GeneratingHumanFaces/sourcecode/configs/colab.conf",
                         help="default configuration for the Network")
 
     # =======================================================================================
@@ -41,24 +51,19 @@ def parse_arguments():
     # GAN RELATED ARGUMENTS ... :)
     # =======================================================================================
 
-    parser.add_argument("--generator_file", action="store", type=str,
-                        default=None,
+    parser.add_argument("--generator_file", action="store", type=str, default=None,
                         help="pretrained weights file for generator")
 
-    parser.add_argument("--generator_optim_file", action="store", type=str,
-                        default=None,
+    parser.add_argument("--generator_optim_file", action="store", type=str, default=None,
                         help="saved state for generator optimizer")
 
-    parser.add_argument("--shadow_generator_file", action="store", type=str,
-                        default=None,
+    parser.add_argument("--shadow_generator_file", action="store", type=str, default=None,
                         help="pretrained weights file for the shadow generator")
 
-    parser.add_argument("--discriminator_file", action="store", type=str,
-                        default=None,
+    parser.add_argument("--discriminator_file", action="store", type=str, default=None,
                         help="pretrained_weights file for discriminator")
 
-    parser.add_argument("--discriminator_optim_file", action="store", type=str,
-                        default=None,
+    parser.add_argument("--discriminator_optim_file", action="store", type=str, default=None,
                         help="saved state for discriminator optimizer")
 
     # =======================================================================================
@@ -74,6 +79,7 @@ def parse_arguments():
     args = parser.parse_args()
 
     return args
+
 
 def get_config(conf_file):
     """
@@ -131,14 +137,14 @@ def main(args):
 
     # create a gan from these
     gan = ConditionalGAN(depth=config.depth,
-              latent_size=config.latent_size,
-              ca_hidden_size=config.ca_hidden_size,
-              ca_out_size=config.ca_out_size,
-              loss_fn=config.loss_function,
-              use_eql=config.use_eql,
-              use_ema=config.use_ema,
-              ema_decay=config.ema_decay,
-              device=device)
+                         latent_size=config.latent_size,
+                         ca_hidden_size=config.ca_hidden_size,
+                         ca_out_size=config.ca_out_size,
+                         loss_fn=config.loss_function,
+                         use_eql=config.use_eql,
+                         use_ema=config.use_ema,
+                         ema_decay=config.ema_decay,
+                         device=device)
 
     if args.ca_file is not None:
         print("loading conditioning augmenter from:", args.ca_file)

@@ -1062,7 +1062,7 @@ class ConditionalGAN:
         # generate a batch of samples
         fake_samples = self.gen(noise)
 
-        loss = loss_fn.gen_loss(real_batch, fake_samples, latent_vector) / num_accumulations
+        loss = self.loss.gen_loss(real_batch, fake_samples, latent_vector) / num_accumulations
 
         # optimize the generator according the accumulation dynamics
         if zero_grad:
@@ -1193,7 +1193,7 @@ class ConditionalGAN:
         images = batch_images.to(self.device)
 
         # list of downsampled versions of images
-        # images = self._downsampled_images(images)
+        images = self._downsampled_images(images)
 
         embeddings = encoder(captions)
         embeddings = th.from_numpy(embeddings).to(self.device)
@@ -1427,7 +1427,7 @@ class ConditionalGAN:
 
                 kl_loss = th.mean(0.5 * th.sum((mus ** 2) + (sigmas ** 2)
                                                - th.log((sigmas ** 2)) - 1, dim=1))
-                kl_loss.backward()
+                kl_loss.backward(retain_graph=True)
                 ca_optim.step()
                 if encoder_optim is not None:
                     encoder_optim.step()
