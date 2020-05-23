@@ -1399,7 +1399,7 @@ class ConditionalGAN:
 
                     kl_loss = th.mean(0.5 * th.sum((mus ** 2) + (sigmas ** 2)
                                                    - th.log((sigmas ** 2)) - 1, dim=1))
-                    kl_loss.backward()
+                    kl_loss.backward(retain_graph=True)
                     ca_optim.step()
                     if encoder_optim is not None:
                         encoder_optim.step()
