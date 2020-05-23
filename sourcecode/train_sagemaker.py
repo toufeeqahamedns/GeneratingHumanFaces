@@ -1,11 +1,19 @@
 """ script for training the MSG-GAN on given dataset """
 
-import argparse
-
-import numpy as np
-import torch as th
-import yaml
+# Set to True if using in SageMaker
 from torch.backends import cudnn
+import yaml
+import os
+import torch as th
+import numpy as np
+import argparse
+USE_SAGEMAKER = False
+
+
+# sagemaker_containers required to access SageMaker environment (SM_CHANNEL_TRAINING, etc.)
+# See https://github.com/aws/sagemaker-containers
+if USE_SAGEMAKER:
+    import sagemaker_containers
 
 # define the device for the training script
 device = th.device("cuda" if th.cuda.is_available() else "cpu")
@@ -24,10 +32,6 @@ def parse_arguments():
     """
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--config", action="store", type=str,
-                        default="/content/GeneratingHumanFaces/sourcecode/configs/colab.conf",
-                        help="default configuration for the Network")
-
     # =======================================================================================
     # AUGMENTOR RELATED ARGUMENTS ... :)
     # =======================================================================================
@@ -37,6 +41,31 @@ def parse_arguments():
 
     parser.add_argument("--ca_optim_file", action="store", type=str, default=None,
                         help="saved state for conditioning augmentor")
+
+    parser.add_argument("--ca_hidden_size", action="store", type=int, default=4096,
+                        help="output size of the pretrained encoder")
+
+    parser.add_argument("--ca_out_size", action="store", type=int, default=256,
+                        help="output size of the conditioning augmentor")
+
+    parser.add_argument("--compressed_latent_size", action="store", type=int, default=128,
+                        help="output size of the compressed latents")
+
+    parser.add_argument("--a_lr", action="store", type=int, default=0.003,
+                        help="learning rate for augmentor")
+
+    # =======================================================================================
+    # ENCODER RELATED ARGUMENTS ... :)
+    # =======================================================================================
+
+    parser.add_argument("--annotations_file", action="store", type=str, default="../data/face2text_v1.0/raw.json",
+                        help="pretrained weights file for annotations")
+
+    parser.add_argument("--encoder_file", action="store", type=str, default=None,
+                        help="pretrained encoder file (compatible with my code)")
+
+    parser.add_argument("--embedding_file", action="store", type=str, default=None,
+                        help="pretrained embedding file")
 
     # =======================================================================================
     # GAN RELATED ARGUMENTS ... :)
@@ -57,6 +86,107 @@ def parse_arguments():
     parser.add_argument("--discriminator_optim_file", action="store", type=str, default=None,
                         help="saved state for discriminator optimizer")
 
+    parser.add_argument("--images_dir", action="store", type=str,
+                        default=os.environ['SM_CHANNEL_TRAINING'],
+                        help="path for the images directory")
+
+    parser.add_argument("--flip_augment", action="store", type=bool,
+                        default=True,
+                        help="whether to randomly mirror the images during training")
+
+    parser.add_argument("--sample_dir", action="store", type=str,
+                         default=os.environ['SM_MODEL_DIR'],
+                        help="path for the generated samples directory")
+
+    parser.add_argument("--model_dir", action="store", type=str,
+                         default=os.environ['SM_MODEL_DIR'],
+                        help="path for saved models directory")
+
+    parser.add_argument("--loss_function", action="store", type=str,
+                        default="relativistic-hinge-cond",
+                        help="loss function to be used: " +
+                             "standard-gan, wgan-gp, lsgan," +
+                             "lsgan-sigmoid," +
+                             "hinge, relativistic-hinge")
+
+    parser.add_argument("--depth", action="store", type=int,
+                        default=7,
+                        help="Depth of the GAN")
+
+    parser.add_argument("--latent_size", action="store", type=int,
+                        default=512,
+                        help="latent size for the generator")
+
+    parser.add_argument("--batch_size", action="store", type=int,
+                        default=16,
+                        help="batch_size for training")
+
+    parser.add_argument("--spoofing_factor", action="store", type=int,
+                        default=16,
+                        help="number of passes done (gradient accumulation) " +
+                             "before making an update step")
+
+    parser.add_argument("--start", action="store", type=int,
+                        default=1,
+                        help="starting epoch number")
+
+    parser.add_argument("--num_epochs", action="store", type=int,
+                        default=1000,
+                        help="number of epochs for training")
+
+    parser.add_argument("--feedback_factor", action="store", type=int,
+                        default=10,
+                        help="number of logs to generate per epoch")
+
+    parser.add_argument("--num_samples", action="store", type=int,
+                        default=36,
+                        help="number of samples to generate for creating the grid" +
+                             " should be a square number preferably")
+
+    parser.add_argument("--checkpoint_factor", action="store", type=int,
+                        default=10,
+                        help="save model per n epochs")
+
+    parser.add_argument("--a_lr", action="store", type=float,
+                        default=0.003,
+                        help="learning rate for augmentor")
+
+    parser.add_argument("--g_lr", action="store", type=float,
+                        default=0.003,
+                        help="learning rate for generator")
+
+    parser.add_argument("--d_lr", action="store", type=float,
+                        default=0.003,
+                        help="learning rate for discriminator")
+
+    parser.add_argument("--adam_beta1", action="store", type=float,
+                        default=0,
+                        help="value of beta_1 for adam optimizer")
+
+    parser.add_argument("--adam_beta2", action="store", type=float,
+                        default=0.99,
+                        help="value of beta_2 for adam optimizer")
+
+    parser.add_argument("--use_eql", action="store", type=bool,
+                        default=True,
+                        help="Whether to use equalized learning rate or not")
+
+    parser.add_argument("--use_ema", action="store", type=bool,
+                        default=True,
+                        help="Whether to use exponential moving averages or not")
+
+    parser.add_argument("--ema_decay", action="store", type=float,
+                        default=0.999,
+                        help="decay value for the ema")
+
+    parser.add_argument("--data_percentage", action="store", type=float,
+                        default=100,
+                        help="percentage of data to use")
+
+    parser.add_argument("--num_workers", action="store", type=int,
+                        default=3,
+                        help="number of parallel workers for reading files")
+
     # =======================================================================================
     # FID RELATED ARGUMENTS ... :)
     # =======================================================================================
@@ -65,6 +195,24 @@ def parse_arguments():
                         default=None,
                         help="Path to the precomputed fid real statistics file (.npz)")
 
+    parser.add_argument("--log_fid_values", action="store", type=bool,
+                        default=False,
+                        help="Whether to log the fid values during training." +
+                             " Following args are used only if this is true")
+
+    parser.add_argument("--num_fid_images", action="store", type=int,
+                        default=1000,
+                        help="number of images used for calculating fid. Default: 50K")
+
+    parser.add_argument("--fid_temp_folder", action="store", type=str,
+                        default=None,
+                        help="folder to store the temporary generated fid images")
+
+
+    parser.add_argument("--fid_batch_size", action="store", type=int,
+                        default=64,
+                        help="Batch size used for the fid computation" +
+                             "(Both image generation and fid calculation)")
     # ========================================================================================
 
     args = parser.parse_args()
