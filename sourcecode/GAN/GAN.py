@@ -1347,7 +1347,7 @@ class ConditionalGAN:
                     # accumulate gradients in the discriminator:
                     dis_loss += self.optimize_discriminator(
                         dis_optim, gan_input, embeddings.detach(),
-                        images, self.loss_fn,
+                        images, self.loss,
                         accumulate=True,
                         zero_grad=(spoofing_iter == 0),
                         num_accumulations=spoofing_factor)
@@ -1364,7 +1364,7 @@ class ConditionalGAN:
                 # accumulate final gradients in the discriminator and make a step:
                 dis_loss += self.optimize_discriminator(
                     dis_optim, gan_input, embeddings.detach(),
-                    images, self.loss_fn,
+                    images, self.loss,
                     accumulate=False,  # perform update
                     # make gradient buffers zero if spoofing_factor is 1
                     zero_grad=spoofing_factor == 1,
@@ -1392,14 +1392,14 @@ class ConditionalGAN:
                     # accumulate gradients in the generator
                     gen_loss += self.optimize_generator(
                         gen_optim, gan_input,
-                        images, embeddings, self.loss_fn,
+                        images, embeddings, self.loss,
                         accumulate=True,
                         zero_grad=(spoofing_iter == 0),
                         num_accumulations=spoofing_factor)
 
-                    kl_loss = th.mean(0.5 * th.sum((mus ** 2) + (sigmas ** 2)
-                                                   - th.log((sigmas ** 2)) - 1, dim=1))
-                    kl_loss.backward(retain_graph=True)
+                    # kl_loss = th.mean(0.5 * th.sum((mus ** 2) + (sigmas ** 2)
+                    #                                - th.log((sigmas ** 2)) - 1, dim=1))
+                    # kl_loss.backward(retain_graph=True)
                     ca_optim.step()
                     if encoder_optim is not None:
                         encoder_optim.step()
@@ -1419,15 +1419,15 @@ class ConditionalGAN:
                 # accumulate final gradients in the generator and make a step:
                 gen_loss += self.optimize_generator(
                     gen_optim, gan_input,
-                    images, embeddings, self.loss_fn,
+                    images, embeddings, self.loss,
                     accumulate=False,  # perform update
                     # make gradient buffers zero if spoofing_factor is 1
                     zero_grad=spoofing_factor == 1,
                     num_accumulations=spoofing_factor)
 
-                kl_loss = th.mean(0.5 * th.sum((mus ** 2) + (sigmas ** 2)
-                                               - th.log((sigmas ** 2)) - 1, dim=1))
-                kl_loss.backward(retain_graph=True)
+                # kl_loss = th.mean(0.5 * th.sum((mus ** 2) + (sigmas ** 2)
+                #                                - th.log((sigmas ** 2)) - 1, dim=1))
+                # kl_loss.backward(retain_graph=True)
                 ca_optim.step()
                 if encoder_optim is not None:
                     encoder_optim.step()
@@ -1442,14 +1442,14 @@ class ConditionalGAN:
                         batch_counter == 1:
                     elapsed = time.time() - global_time
                     elapsed = str(datetime.timedelta(seconds=elapsed))
-                    print("Elapsed [%s] batch: %d  d_loss: %f  g_loss: %f kl_loss: %f"
-                          % (elapsed, batch_counter, dis_loss, gen_loss, kl_loss.item()))
+                    print("Elapsed [%s] batch: %d  d_loss: %f  g_loss: %f"
+                          % (elapsed, batch_counter, dis_loss, gen_loss))
 
                     # add summary of the losses
                     sum_writer.add_scalar("dis_loss", dis_loss, global_step)
                     sum_writer.add_scalar("gen_loss", gen_loss, global_step)
-                    sum_writer.add_scalar(
-                        "kl_loss", kl_loss.item(), global_step)
+                    # sum_writer.add_scalar(
+                    #     "kl_loss", kl_loss.item(), global_step)
 
                     # also write the losses to the log file:
                     if log_dir is not None:
@@ -1457,7 +1457,7 @@ class ConditionalGAN:
                         os.makedirs(os.path.dirname(log_file), exist_ok=True)
                         with open(log_file, "a") as log:
                             log.write(str(global_step) + "\t" + str(dis_loss) +
-                                      "\t" + str(gen_loss) + "\t" + str(kl_loss.item()) + "\n")
+                                      "\t" + str(gen_loss) + "\n")
 
                     # create a grid of samples and save it
                     gen_img_files = [os.path.join(sample_dir, res, "gen_" +
