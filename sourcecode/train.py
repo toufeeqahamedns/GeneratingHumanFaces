@@ -16,7 +16,6 @@ cudnn.benchmark = True
 # set seed = 3
 th.manual_seed(seed=3)
 
-
 def parse_arguments():
     """
     command line arguments parser

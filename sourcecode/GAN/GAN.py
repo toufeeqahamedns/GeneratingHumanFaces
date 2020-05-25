@@ -1312,6 +1312,8 @@ class ConditionalGAN:
         # create a global time counter
         global_time = time.time()
         global_step = 0
+        
+        print("Total batches for each epoch would be %d" % limit)
 
         for epoch in range(start, num_epochs + 1):
             start_time = timeit.default_timer()  # record time at the start of epoch
@@ -1327,23 +1329,28 @@ class ConditionalGAN:
             # but the subsequent epochs perform random shuffling prior to starting the
             # training for that epoch
             while real_data_store.hasnext() and batch_counter < limit:
-
+                
                 # perform batch spoofing via gradient accumulation
                 dis_loss, gen_loss = 0, 0  # losses initialized to zeros
 
                 # =================================================================
                 # discriminator iterations:
                 # =================================================================
+                
+                print("Discriminator iterations")
+                
                 for spoofing_iter in range(spoofing_factor - 1):
 
                     # =============================================================
                     # Discriminator spoofing pass
                     # =============================================================
+                    
+                    print("Discriminator spoofing pass %d " % spoofing_iter)
 
                     # sample images and latents for discriminator pass
                     _, images, gan_input, embeddings, _, _ = self._get_images_and_latents(
                         real_data_store, text_encoder, normalize_latents)
-
+                    
                     # accumulate gradients in the discriminator:
                     dis_loss += self.optimize_discriminator(
                         dis_optim, gan_input, embeddings.detach(),
@@ -1356,11 +1363,13 @@ class ConditionalGAN:
                 # Discriminator update pass
                 # (note values for accumulate and zero_grad)
                 # =============================================================
+                
+                print("Discriminator update pass")
 
                 # sample images and latents for discriminator pass
                 _, images, gan_input, embeddings, _, _ = self._get_images_and_latents(
                     real_data_store, text_encoder, normalize_latents)
-
+                            
                 # accumulate final gradients in the discriminator and make a step:
                 dis_loss += self.optimize_discriminator(
                     dis_optim, gan_input, embeddings.detach(),
@@ -1375,11 +1384,16 @@ class ConditionalGAN:
                 # =================================================================
                 # generator iterations:
                 # =================================================================
+                
+                print("Generator iterations")
+                
                 for spoofing_iter in range(spoofing_factor - 1):
 
                     # =============================================================
                     # Generator spoofing pass
                     # =============================================================
+                    
+                    print(" Generator spoofing pass %d " % spoofing_iter)
 
                     # re-sample images and latents for generator pass
                     _, images, gan_input, embeddings, mus, sigmas = self._get_images_and_latents(
@@ -1397,9 +1411,6 @@ class ConditionalGAN:
                         zero_grad=(spoofing_iter == 0),
                         num_accumulations=spoofing_factor)
 
-                    # kl_loss = th.mean(0.5 * th.sum((mus ** 2) + (sigmas ** 2)
-                    #                                - th.log((sigmas ** 2)) - 1, dim=1))
-                    # kl_loss.backward(retain_graph=True)
                     ca_optim.step()
                     if encoder_optim is not None:
                         encoder_optim.step()
@@ -1407,6 +1418,8 @@ class ConditionalGAN:
                 # Generator update pass
                 # (note values for accumulate and zero_grad)
                 # =============================================================
+                
+                print("Generator update pass")
 
                 # sample images and latents for generator pass
                 _, images, gan_input, embeddings, _, _ = self._get_images_and_latents(
@@ -1425,9 +1438,6 @@ class ConditionalGAN:
                     zero_grad=spoofing_factor == 1,
                     num_accumulations=spoofing_factor)
 
-                # kl_loss = th.mean(0.5 * th.sum((mus ** 2) + (sigmas ** 2)
-                #                                - th.log((sigmas ** 2)) - 1, dim=1))
-                # kl_loss.backward(retain_graph=True)
                 ca_optim.step()
                 if encoder_optim is not None:
                     encoder_optim.step()
@@ -1436,6 +1446,8 @@ class ConditionalGAN:
                 # increment the global_step and the batch_counter:
                 global_step += 1
                 batch_counter += 1
+                
+                print("Finished batch %d" % batch_counter)
 
                 # provide a loss feedback
                 if batch_counter % int(limit / feedback_factor) == 0 or \
@@ -1448,8 +1460,6 @@ class ConditionalGAN:
                     # add summary of the losses
                     sum_writer.add_scalar("dis_loss", dis_loss, global_step)
                     sum_writer.add_scalar("gen_loss", gen_loss, global_step)
-                    # sum_writer.add_scalar(
-                    #     "kl_loss", kl_loss.item(), global_step)
 
                     # also write the losses to the log file:
                     if log_dir is not None:
