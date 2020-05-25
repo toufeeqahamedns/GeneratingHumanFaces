@@ -7,7 +7,8 @@ import os
 import torch as th
 import numpy as np
 import argparse
-USE_SAGEMAKER = False
+
+USE_SAGEMAKER = True
 
 
 # sagemaker_containers required to access SageMaker environment (SM_CHANNEL_TRAINING, etc.)
@@ -57,15 +58,17 @@ def parse_arguments():
     # =======================================================================================
     # ENCODER RELATED ARGUMENTS ... :)
     # =======================================================================================
+    
+    ## These have been moved down
 
-    parser.add_argument("--annotations_file", action="store", type=str, default="../data/face2text_v1.0/raw.json",
-                        help="pretrained weights file for annotations")
+    #parser.add_argument("--annotations_file", action="store", type=str, default="/opt/ml/input/face2text_v1.0/raw.json",
+    #                    help="pretrained weights file for annotations")
 
-    parser.add_argument("--encoder_file", action="store", type=str, default=None,
-                        help="pretrained encoder file (compatible with my code)")
+    #parser.add_argument("--encoder_file", action="store", type=str, default="/opt/ml/input/infersent2/infersent2.pkl",
+    #                    help="pretrained encoder file (compatible with my code)")
 
-    parser.add_argument("--embedding_file", action="store", type=str, default=None,
-                        help="pretrained embedding file")
+    #parser.add_argument("--embedding_file", action="store", type=str, default="/opt/ml/input/fasttext/crawl-300d-2M.vec",
+    #                    help="pretrained embedding file")
 
     # =======================================================================================
     # GAN RELATED ARGUMENTS ... :)
@@ -86,9 +89,11 @@ def parse_arguments():
     parser.add_argument("--discriminator_optim_file", action="store", type=str, default=None,
                         help="saved state for discriminator optimizer")
 
-    parser.add_argument("--images_dir", action="store", type=str,
-                        default=os.environ['SM_CHANNEL_TRAINING'],
-                        help="path for the images directory")
+    ## This has been moved down
+    
+    #parser.add_argument("--images_dir", action="store", type=str,
+    #                    default="/opt/ml/input/data/",
+    #                    help="path for the images directory")
 
     parser.add_argument("--flip_augment", action="store", type=bool,
                         default=True,
@@ -118,7 +123,7 @@ def parse_arguments():
                         help="latent size for the generator")
 
     parser.add_argument("--batch_size", action="store", type=int,
-                        default=16,
+                        default=20,
                         help="batch_size for training")
 
     parser.add_argument("--spoofing_factor", action="store", type=int,
@@ -146,10 +151,6 @@ def parse_arguments():
     parser.add_argument("--checkpoint_factor", action="store", type=int,
                         default=10,
                         help="save model per n epochs")
-
-    parser.add_argument("--a_lr", action="store", type=float,
-                        default=0.003,
-                        help="learning rate for augmentor")
 
     parser.add_argument("--g_lr", action="store", type=float,
                         default=0.003,
@@ -219,22 +220,6 @@ def parse_arguments():
 
     return args
 
-
-def get_config(conf_file):
-    """
-    parse and load the provided configuration
-    :param conf_file: configuration file
-    :return: conf => parsed configuration
-    """
-    from easydict import EasyDict as edict
-
-    with open(conf_file, "r") as file_descriptor:
-        data = yaml.load(file_descriptor)
-
-    # convert the data into an easyDictionary
-    return edict(data)
-
-
 def main(args):
     """
     Main function for the script
@@ -247,42 +232,46 @@ def main(args):
     from GAN import Losses as lses
     from GAN.TextEncoder import PretrainedEncoder
     from GAN.ConditionAugmentation import ConditionAugmentor
-
-    config = get_config(args.config)
-    print("Current Configuration:", config)
+    
+    base_dir = os.environ["SM_CHANNEL_TRAINING"]
+    
+    images_dir_path = os.path.join(base_dir, "data")
+    annotation_file = os.path.join(base_dir, "face2text_v1.0/raw.json")
+    encoder_file = os.path.join(base_dir, "infersent2/infersent2.pkl")
+    embedding_file = os.path.join(base_dir, "fasttext/crawl-300d-2M.vec")
 
     # transformation routine:
-    res = int(np.power(2, config.depth + 1))
+    res = int(np.power(2, args.depth + 1))
     img_transform = get_transform(
-        (res, res), flip_horizontal=config.flip_augment)
+        (res, res), flip_horizontal=args.flip_augment)
 
     # create a data source:
     dataset = RawTextFace2TextDataset(
-        annots_file=config.annotations_file,
-        img_dir=config.images_dir,
+        annots_file=annotation_file,
+        img_dir=images_dir_path,
         img_transform=img_transform,
     )
 
     # create a new session object for the pretrained encoder:
     text_encoder = PretrainedEncoder(
-        model_file=config.encoder_file,
-        embedding_file=config.embedding_file,
+        model_file=encoder_file,
+        embedding_file=embedding_file,
         device=device,
     )
     encoder_optim = None
 
-    data = get_data_loader(dataset, config.batch_size, config.num_workers)
+    data = get_data_loader(dataset, args.batch_size, args.num_workers)
     print("Total number of images in the dataset:", len(dataset))
 
     # create a gan from these
-    gan = ConditionalGAN(depth=config.depth,
-                         latent_size=config.latent_size,
-                         ca_hidden_size=config.ca_hidden_size,
-                         ca_out_size=config.ca_out_size,
-                         loss_fn=config.loss_function,
-                         use_eql=config.use_eql,
-                         use_ema=config.use_ema,
-                         ema_decay=config.ema_decay,
+    gan = ConditionalGAN(depth=args.depth,
+                         latent_size=args.latent_size,
+                         ca_hidden_size=args.ca_hidden_size,
+                         ca_out_size=args.ca_out_size,
+                         loss_fn=args.loss_function,
+                         use_eql=args.use_eql,
+                         use_ema=args.use_ema,
+                         ema_decay=args.ema_decay,
                          device=device)
 
     if args.ca_file is not None:
@@ -317,15 +306,15 @@ def main(args):
 
     # create the optimizer for Condition Augmenter separately
     ca_optim = th.optim.Adam(gan.ca.parameters(),
-                             lr=config.a_lr,
-                             betas=[config.adam_beta1, config.adam_beta2])
+                             lr=args.a_lr,
+                             betas=[args.adam_beta1, args.adam_beta2])
 
     # create optimizer forImportError: No module named 'networks.pro_gan_pytorch' generator:
-    gen_optim = th.optim.Adam(gan.gen.parameters(), config.g_lr,
-                              [config.adam_beta1, config.adam_beta2])
+    gen_optim = th.optim.Adam(gan.gen.parameters(), args.g_lr,
+                              [args.adam_beta1, args.adam_beta2])
 
-    dis_optim = th.optim.Adam(gan.dis.parameters(), config.d_lr,
-                              [config.adam_beta1, config.adam_beta2])
+    dis_optim = th.optim.Adam(gan.dis.parameters(), args.d_lr,
+                              [args.adam_beta1, args.adam_beta2])
 
     if args.generator_optim_file is not None:
         print("loading gen_optim_state from:", args.generator_optim_file)
@@ -343,24 +332,29 @@ def main(args):
         ca_optim,
         text_encoder,
         encoder_optim,
-        num_epochs=config.num_epochs,
-        checkpoint_factor=config.checkpoint_factor,
-        data_percentage=config.data_percentage,
-        feedback_factor=config.feedback_factor,
-        num_samples=config.num_samples,
-        sample_dir=config.sample_dir,
-        save_dir=config.model_dir,
-        log_dir=config.model_dir,
-        start=config.start,
-        spoofing_factor=config.spoofing_factor,
-        log_fid_values=config.log_fid_values,
-        num_fid_images=config.num_fid_images,
-        fid_temp_folder=config.fid_temp_folder,
+        num_epochs=args.num_epochs,
+        checkpoint_factor=args.checkpoint_factor,
+        data_percentage=args.data_percentage,
+        feedback_factor=args.feedback_factor,
+        num_samples=args.num_samples,
+        sample_dir=args.sample_dir,
+        save_dir=args.model_dir,
+        log_dir=args.model_dir,
+        start=args.start,
+        spoofing_factor=args.spoofing_factor,
+        log_fid_values=args.log_fid_values,
+        num_fid_images=args.num_fid_images,
+        fid_temp_folder=args.fid_temp_folder,
         fid_real_stats=args.fid_real_stats,
-        fid_batch_size=config.fid_batch_size
+        fid_batch_size=args.fid_batch_size
     )
 
 
 if __name__ == '__main__':
+    
+    # install necessary packages
+    os.system('pip install imageio')
+    os.system('pip install tensorboardX')
+    
     # invoke the main function of the script
     main(parse_arguments())
