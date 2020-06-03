@@ -167,9 +167,8 @@ def main(args):
     print(gan.dis)
 
     # create the optimizer for Condition Augmenter separately
-    ca_optim = th.optim.Adam(gan.ca.parameters(),
-                             lr=config.a_lr,
-                             betas=[config.adam_beta1, config.adam_beta2])
+    ca_optim = th.optim.Adam(gan.ca.parameters(), config.a_lr,
+                             [config.adam_beta1, config.adam_beta2])
 
     # create optimizer forImportError: No module named 'networks.pro_gan_pytorch' generator:
     gen_optim = th.optim.Adam(gan.gen.parameters(), config.g_lr,
@@ -177,6 +176,10 @@ def main(args):
 
     dis_optim = th.optim.Adam(gan.dis.parameters(), config.d_lr,
                               [config.adam_beta1, config.adam_beta2])
+
+    if args.ca_optim_file is not None:
+        print("loading ca_optim_state from:", args.ca_optim_file)
+        ca_optim.load_state_dict(th.load(args.ca_optim_file))
 
     if args.generator_optim_file is not None:
         print("loading gen_optim_state from:", args.generator_optim_file)
